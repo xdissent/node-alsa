@@ -19,7 +19,13 @@ You'll also probably want to have an audio device for either playback or capture
 Installation
 ------------
 
-Since this package is not yet published to npm, install it via git:
+Install with npm:
+
+```sh
+$ npm install alsa
+```
+
+or via git:
 
 ```sh
 $ npm install git+https://github.com/xdissent/node-alsa.git
