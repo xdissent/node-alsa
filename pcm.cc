@@ -38,6 +38,7 @@ Handle<Value> Pcm::New(const Arguments& args) {
   args.This()->Set(String::NewSymbol("rate"), args[1], ReadOnly);
   args.This()->Set(String::NewSymbol("format"), args[2], ReadOnly);
   args.This()->Set(String::NewSymbol("access"), args[3], ReadOnly);
+  args.This()->Set(String::NewSymbol("latency"), args[4], ReadOnly);
 
   return args.This();
 }
@@ -57,11 +58,12 @@ Handle<Value> Pcm::Open(const Arguments& args) {
     return scope.Close(Undefined());
   }
 
-  // channels, rate, format, access
+  // channels, rate, format, access, latency
   unsigned int channels = args.Holder()->Get(String::NewSymbol("channels"))->Uint32Value();
   unsigned int rate = args.Holder()->Get(String::NewSymbol("rate"))->Uint32Value();
   snd_pcm_format_t format = static_cast<snd_pcm_format_t>(args.Holder()->Get(String::NewSymbol("format"))->Int32Value());
   snd_pcm_access_t access = static_cast<snd_pcm_access_t>(args.Holder()->Get(String::NewSymbol("access"))->Int32Value());
+  unsigned int latency = args.Holder()->Get(String::NewSymbol("latency"))->Uint32Value();
 
   // device, stream
   String::Utf8Value device(args[0]->ToString());
@@ -74,38 +76,17 @@ Handle<Value> Pcm::Open(const Arguments& args) {
     return scope.Close(Undefined());
   }
 
-  snd_pcm_hw_params_t *params;
-  snd_pcm_hw_params_alloca(&params);
-  err = snd_pcm_hw_params_any(pcm->handle, params);
-  if (err < 0) {
-    ThrowException(Exception::TypeError(String::New("No device")));
-    return scope.Close(Undefined());
-  }
-  err = snd_pcm_hw_params_set_access(pcm->handle, params, access);
-  if (err < 0) {
-    ThrowException(Exception::TypeError(String::New("Invalid access")));
-    return scope.Close(Undefined());
-  }
-  err = snd_pcm_hw_params_set_format(pcm->handle, params, format);
-  if (err < 0) {
-    ThrowException(Exception::TypeError(String::New("Invalid format")));
-    return scope.Close(Undefined());
-  }
-  err = snd_pcm_hw_params_set_channels(pcm->handle, params, channels);
-  if (err < 0) {
-    ThrowException(Exception::TypeError(String::New("Invalid channels")));
-    return scope.Close(Undefined());
-  }
-  err = snd_pcm_hw_params_set_rate_near(pcm->handle, params, &rate, NULL);
-  if (err < 0) {
-    ThrowException(Exception::TypeError(String::New("Invalid rate")));
-    return scope.Close(Undefined());
-  }
-  err = snd_pcm_hw_params(pcm->handle, params);
+  err = snd_pcm_set_params(pcm->handle, format, access, channels, rate, 0, latency);
   if (err < 0) {
     ThrowException(Exception::TypeError(String::New("Unable to set params")));
     return scope.Close(Undefined());
   }
+
+/*
+  static snd_output_t *log;
+  snd_output_stdio_attach(&log, stderr, 0);
+  snd_pcm_dump(pcm->handle, log);
+*/
 
   pcm->open = true;
 
@@ -158,8 +139,17 @@ Handle<Value> Pcm::StartReading(const Arguments& args) {
     return scope.Close(Undefined());
   }
 
-  // Build a buffer
-  snd_pcm_uframes_t frames = 5513;
+  snd_pcm_uframes_t bufferSize; // Internal ALSA buffer, not ours (in frames).
+  snd_pcm_uframes_t frames;     // Then number of frames in one period at our rate and latency.
+  int err;
+  
+  err = snd_pcm_get_params(pcm->handle, &bufferSize, &frames);
+  if (err < 0) {
+    ThrowException(Exception::TypeError(String::New("Couldn't get buffer size")));
+    return scope.Close(Undefined());
+  }
+
+  // Build a buffer one period in length.
   char* buffer = (char*)malloc(snd_pcm_frames_to_bytes(pcm->handle, frames));
   if (buffer == NULL) {
     ThrowException(Exception::TypeError(String::New("Not enough memory")));
