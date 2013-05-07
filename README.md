@@ -35,48 +35,29 @@ $ npm install git+https://github.com/xdissent/node-alsa.git
 Usage
 -----
 
-The `alsa` module exports 2 high-level classes for playback and recording, a simple wrapper class around PCM operations, and a subset of the low-level libasound2 functions.
+The `alsa` module exports 2 high-level classes for playback and recording.
 
 ```js
 var alsa = require('alsa'),
 
   // The following variables represent the defaults for the Playback and Capture constructors.
-  device = 'default',                                 // ALSA default device
-  channels = 2,                                       // Stereo
-  rate = 44100,                                       // Sample rate
-  format = alsa.libasound.PCM_FORMAT_S16_LE,          // PCM format (signed 16 bit LE int)
-  access = alsa.libasound.PCM_ACCESS_RW_INTERLEAVED,  // Access mode
-  async =  false;                                     // Async-mode - YOU DO NOT WANT THIS!
+  device = 'default',                   // ALSA default device
+  channels = 2,                         // Stereo
+  rate = 44100,                         // Sample rate
+  format = alsa.FORMAT_S16_LE,          // PCM format (signed 16 bit LE int)
+  access = alsa.ACCESS_RW_INTERLEAVED,  // Access mode
+  latency = 500;                        // Desired latency in milliseconds
 
 // The Capture class is a stream.Readable subclass.
-var capture = new alsa.Capture(device, channels, rate, format, access, async);
+var capture = new alsa.Capture(device, channels, rate, format, access, latency);
 capture.pipe(process.stdout);   // Treat it like any other readable stream.
 
 // The Playback class is a stream.Writable subclass.
-var playback = new alsa.Playback(device, channels, rate, format, access, async);
+var playback = new alsa.Playback(device, channels, rate, format, access, latency);
 process.stdin.pipe(playback);   // Treat it like any other writable stream.
 
-// The Pcm class is a wrapper around common libasound2 functions.
-var pcm = new alsa.Pcm(device, alsa.libasound.PCM_STREAM_CAPTURE);  // or PCM_STREAM_PLAYBACK
-
-// Open PCM device, set parameters, and prepare (chainable).
-pcm.open().access(access).format(format).channels(channels).rate(rate).prepare();
-
-// PCM parameters are combo getters and setters.
-console.log('Channels: ' + pcm.channels());
-
-// Calculate some sizes and create a buffer.
-var bytesPerFrame = pcm.bytesPerFrame(),
-  framesPerBuffer = 1024,
-  bufferSize = framesPerBuffer * bytesPerFrame,
-  buffer = new Buffer(bufferSize);
-
-// Read frames from PCM device into the buffer, then get the raw frames.
-var readFrames = pcm.readi(buffer, framesPerBuffer),
-  frames = buffer.slice(0, readFrames * bytesPerFrame);
-  
-// Low level libasound2 api access works too (pcm.pcm is a libasound2 snd_pcm_t pointer).
-console.log(alsa.libasound.snd_pcm_name(pcm.pcm));
+// Want to do both at the same time? Not a problem:
+capture.pipe(playback);         // Of course, your sound hardware might say otherwise.
 ```
 
 
