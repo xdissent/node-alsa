@@ -1,4 +1,5 @@
+stream = require './stream'
 exports.Pcm = require('bindings')('alsa').Pcm
-exports.Capture = require './capture'
-exports.Playback = require './playback'
+exports.Capture = stream.Capture
+exports.Playback = stream.Playback
 exports[k] = v for k, v of require './constants'
