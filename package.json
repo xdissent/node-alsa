@@ -1,8 +1,13 @@
 {
   "name": "alsa",
   "description": "ALSA bindings for Node.js",
-  "keywords": ["audio", "sound", "alsa", "libasound"],
-  "version": "0.0.1",
+  "keywords": [
+    "audio",
+    "sound",
+    "alsa",
+    "libasound"
+  ],
+  "version": "0.0.2",
   "author": "Greg Thornton <xdissent@me.com> (http://xdissent.com)",
   "license": "MIT",
   "homepage": "https://github.com/xdissent/node-alsa",
@@ -14,8 +19,7 @@
   "bugs": {
     "url": "https://github.com/xdissent/node-alsa/issues"
   },
-  "dependencies": {
-  },
+  "dependencies": {},
   "devDependencies": {
     "coffee-script": ">= 1.6.2"
   },
