@@ -26,7 +26,9 @@ protected:
     writable(false),
     writing(false),
     interleaved(false),
-    closing(false) {
+    closing(false),
+    leftovers(NULL),
+    leftoversLength(0) {
   }
 
   ~Pcm() {
@@ -38,6 +40,8 @@ protected:
     writing = false;
     interleaved = false;
     closing = false;
+    leftovers = NULL;
+    leftoversLength = 0;
   }
 
   struct Baton {
@@ -83,22 +87,12 @@ protected:
     }
   };
 
-  // struct WriteBaton : Baton {
-  //   char* chunk;                        // The entire chunk to write over iterations
-  //   snd_pcm_uframes_t chunkFrames;      // The total chunk frames to write
-  //   snd_pcm_sframes_t wroteFrames; // The chunk frames written so far
-
-  //   WriteBaton(Pcm* pcm_, char* buffer_, snd_pcm_uframes_t frames_, snd_pcm_sframes_t wroteFrames_, char* chunk_, snd_pcm_uframes_t chunkFrames_, snd_pcm_sframes_t wroteChunkFrames_) :
-  //       Baton(pcm_), buffer(buffer_), frames(frames_), wroteFrames(wroteFrames_), chunk(chunk_), chunkFrames(chunkFrames_), wroteChunkFrames(wroteChunkFrames_) {   
-  //   }
-  // };
-
   struct WriteBaton : IOBaton {
     char* chunk;
     snd_pcm_uframes_t chunkFrames;
-    int total;
+    snd_pcm_uframes_t total;
 
-    ReadBaton(Pcm* pcm_, Handle<Function> cb_, snd_pcm_uframes_t frames_, char* chunk_, snd_pcm_uframes_t chunkFrames_) : 
+    WriteBaton(Pcm* pcm_, Handle<Function> cb_, snd_pcm_uframes_t frames_, char* chunk_, snd_pcm_uframes_t chunkFrames_) : 
         IOBaton(pcm_, cb_, frames_), chunk(chunk_), chunkFrames(chunkFrames_), total(0) {
     }
   };
@@ -133,6 +127,8 @@ protected:
   bool writing;
   bool interleaved;
   bool closing;
+  char *leftovers;
+  int leftoversLength;
 };
 
 }

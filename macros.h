@@ -12,7 +12,6 @@
     );                                                                         \
   }
 
-
 #define COND_ERR_CALL_VOID(condition, callback, message, context)              \
   if (condition) {                                                             \
     if ((callback).IsEmpty() || !(callback)->IsFunction()) {                   \
@@ -21,7 +20,7 @@
     }                                                                          \
     Local<Value> exception = Exception::Error(String::New(message));           \
     Local<Value> argv[1] = { Local<Value>::New(exception) };                   \
-    TRY_CATCH_CALL((context), (callback), 1, argv);                        \
+    TRY_CATCH_CALL((context), (callback), 1, argv);                            \
     return;                                                                    \
   }
 

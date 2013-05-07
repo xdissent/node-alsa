@@ -53,6 +53,12 @@ Handle<Value> Pcm::ReadableGetter(Local<String> str, const AccessorInfo& accesso
   return Boolean::New(pcm->readable);
 }
 
+Handle<Value> Pcm::WritableGetter(Local<String> str, const AccessorInfo& accessor) {
+  HandleScope scope;
+  Pcm* pcm = ObjectWrap::Unwrap<Pcm>(accessor.This());
+  return Boolean::New(pcm->writable);
+}
+
 Handle<Value> Pcm::Open(const Arguments& args) {
   HandleScope scope;
 
@@ -170,6 +176,13 @@ void Pcm::AfterClose(uv_work_t* req) {
     TRY_CATCH_CALL(pcm->handle_, baton->callback, 0, argv);
   }
 
+  // Clean up leftovers if we were writing
+  if (pcm->leftovers != NULL) {
+    free(pcm->leftovers);
+    pcm->leftovers = NULL;
+    pcm->leftoversLength = 0;
+  }
+
   pcm->opened = false;
   pcm->readable = false;
   pcm->reading = false;
@@ -189,6 +202,7 @@ Handle<Value> Pcm::Read(const Arguments& args) {
 
   COND_ERR_CALL(!pcm->opened, callback, "Not open");
   COND_ERR_CALL(!pcm->readable, callback, "Not readable");
+  COND_ERR_CALL(pcm->reading, callback, "Already reading");
 
   snd_pcm_uframes_t bufferSize; // Internal ALSA buffer, not ours (in frames).
   snd_pcm_uframes_t frames;     // Then number of frames in one period at our rate and latency.
@@ -226,7 +240,6 @@ void Pcm::AfterRead(uv_work_t* req) {
 
   ReadBaton* baton = static_cast<ReadBaton*>(req->data);
   Pcm* pcm = baton->pcm;
-  bool again = false;
 
   // Silently bail if things were closed out from under us.
   if (!pcm->opened || !pcm->readable || pcm->closing || !pcm->reading) {
@@ -247,64 +260,99 @@ void Pcm::AfterRead(uv_work_t* req) {
     }
     // Didn't recover - call the callback with the error
     argv[0] = Local<Value>::New(Integer::New(err));
+    pcm->reading = false;
 
   } else if (baton->result < static_cast<snd_pcm_sframes_t>(baton->frames)) {
     // Anything less than the full buffer size is an error
     argv[0] = Local<Value>::New(Integer::New(baton->result));
+    pcm->reading = false;
 
   } else {
     // Success - copy the buffer and pass it to callback and read again
     Buffer *buf = Buffer::New(baton->buffer, snd_pcm_frames_to_bytes(pcm->handle, baton->result));
     argv[1] = Local<Value>::New(buf->handle_);
-    again = true;
   }
 
   // Run the callback
   TRY_CATCH_CALL(pcm->handle_, baton->callback, 2, argv);
 
   // Go again?
-  if (again) {
+  if (pcm->reading) {
     BeginRead(baton);
   } else {
-    pcm->reading = false;
     delete baton;
   }
 }
 
-
-
-
-
-
-
-
-
-
 Handle<Value> Pcm::Write(const Arguments& args) {
   HandleScope scope;
 
-  REQUIRE_ARGUMENT_FUNCTION(0, callback);
+  REQUIRE_ARGUMENTS(2);
+  REQUIRE_ARGUMENT_FUNCTION(1, callback);
 
   Pcm *pcm = ObjectWrap::Unwrap<Pcm>(args.Holder());
 
   COND_ERR_CALL(!pcm->opened, callback, "Not open");
-  COND_ERR_CALL(!pcm->readable, callback, "Not readable");
+  COND_ERR_CALL(!pcm->writable, callback, "Not writable");
+  COND_ERR_CALL(pcm->writing, callback, "Already writing");
 
   snd_pcm_uframes_t bufferSize; // Internal ALSA buffer, not ours (in frames).
   snd_pcm_uframes_t frames;     // Then number of frames in one period at our rate and latency.
-  int err;
-  err = snd_pcm_get_params(pcm->handle, &bufferSize, &frames);
+  int err = snd_pcm_get_params(pcm->handle, &bufferSize, &frames);
   COND_ERR_CALL(err < 0, callback, "Couldn't get buffer size");
 
-  pcm->reading = true;
-  Baton *baton = new WriteBaton(pcm, callback, frames);
-  BeginWrite(baton);
+  // Bytes in 1 period, which is the size of our buffers
+  ssize_t framesBytes = snd_pcm_frames_to_bytes(pcm->handle, frames);
+
+  // Initialize leftovers if we haven't yet.
+  if (pcm->leftovers == NULL) {
+    pcm->leftovers = (char*)malloc(framesBytes);
+    pcm->leftoversLength = 0;
+  }
+
+  // Get chunk from args
+  char *chunk = Buffer::Data(args[0]->ToObject());
+  int chunkLength = Buffer::Length(args[0]->ToObject());
+
+  // Get the total length of all available data
+  int totalLength = pcm->leftoversLength + chunkLength;
+  snd_pcm_uframes_t chunkFrames = snd_pcm_bytes_to_frames(pcm->handle, static_cast<snd_pcm_uframes_t>(totalLength));
+
+  // We're at least ready to write, starting with leftovers (don't know where chunk will start)
+  WriteBaton *baton = new WriteBaton(pcm, callback, frames, NULL, 0);
+
+  // Bail early if we don't have a buffer's worth of data to write
+  if (chunkFrames < frames) {
+    // Too little data - store entire chunk in leftovers
+    memcpy(pcm->leftovers + pcm->leftoversLength, chunk, chunkLength);
+    pcm->leftoversLength += chunkLength;
+
+  } else {
+    // Copy leftovers
+    memcpy(baton->buffer, pcm->leftovers, pcm->leftoversLength);
+    // Fill the rest of the buffer from chunk
+    int chunkOffset = framesBytes - pcm->leftoversLength;
+    memcpy(baton->buffer + pcm->leftoversLength, chunk, chunkOffset);
+
+    // Calculate new leftovers length
+    pcm->leftoversLength = totalLength % framesBytes;
+
+    // Copy leftovers from end of chunk
+    memcpy(pcm->leftovers, (chunk + chunkLength) - pcm->leftoversLength, pcm->leftoversLength);
+
+    // Bump the chunk up for the next write
+    baton->chunk = chunk + chunkOffset;
+    baton->chunkFrames = chunkFrames;
+  }
+
+  pcm->writing = true;
+  BeginWrite(static_cast<Baton*>(baton));
 
   return scope.Close(args.Holder());
 }
 
 void Pcm::BeginWrite(Baton* baton) {
-  // Reset result before reading
+  // Reset result before writing
   static_cast<WriteBaton*>(baton)->result = 0;
   uv_queue_work(uv_default_loop(), &baton->request, DoWrite, (uv_after_work_cb)AfterWrite);
 }
@@ -313,11 +361,15 @@ void Pcm::DoWrite(uv_work_t* req) {
   WriteBaton* baton = static_cast<WriteBaton*>(req->data);
   Pcm* pcm = baton->pcm;
 
+  if (baton->chunk == NULL) {
+    return;
+  }
+
   if (pcm->interleaved) {
-    baton->result = snd_pcm_readi(pcm->handle, baton->buffer, baton->frames);
+    baton->result = snd_pcm_writei(pcm->handle, baton->buffer, baton->frames);
   } else {
     // TODO: Figure this out!
-    // baton->result = snd_pcm_readn(pcm->handle, &(baton->buffer), baton->frames);
+    // baton->result = snd_pcm_writen(pcm->handle, &(baton->buffer), baton->frames);
   }
 }
 
@@ -326,21 +378,15 @@ void Pcm::AfterWrite(uv_work_t* req) {
 
   WriteBaton* baton = static_cast<WriteBaton*>(req->data);
   Pcm* pcm = baton->pcm;
-  bool again = false;
 
-  // Silently bail if things were closed out from under us.
-  if (!pcm->opened || !pcm->readable || pcm->closing || !pcm->reading) {
-    pcm->reading = false;
-    delete baton;
-    return;
-  }
+  Local<Value> argv[1] = { Local<Value>::New(Null()) };
 
-  Local<Value> argv[2] = { Local<Value>::New(Null()), Local<Value>::New(Null()) };
-
-  if (baton->result < 0) {
-    // Got a read error - try to recover
+  if (baton->chunk == NULL || !pcm->opened || !pcm->writable || pcm->closing || !pcm->writing) {
+    // Just run the callback to keep peeps writing
+  } else if (baton->result < 0) {
+    // Got a write error - try to recover
     int err = snd_pcm_recover(pcm->handle, static_cast<int>(baton->result), 1);
-    // If success just try to read again
+    // If success just try to write again
     if (err == 0) {
       BeginWrite(baton);
       return;
@@ -352,21 +398,23 @@ void Pcm::AfterWrite(uv_work_t* req) {
     // Anything less than the full buffer size is an error
     argv[0] = Local<Value>::New(Integer::New(baton->result));
 
-  } else {
-    // Success - copy the buffer and pass it to callback and read again
-    Buffer *buf = Buffer::New(baton->buffer, snd_pcm_frames_to_bytes(pcm->handle, baton->result));
-    argv[1] = Local<Value>::New(buf->handle_);
-    again = true;
-  }
+  } else if (baton->result + baton->total < baton->chunkFrames) {
+    // We still have data
+    ssize_t framesBytes = snd_pcm_frames_to_bytes(pcm->handle, baton->frames);
+    baton->total += baton->result;
+    memcpy(baton->buffer, baton->chunk, framesBytes);
 
-  // Run the callback
-  TRY_CATCH_CALL(pcm->handle_, baton->callback, 2, argv);
+    // Bump chunk (if it's not the last one)
+    if (baton->total + baton->frames < baton->chunkFrames) {
+      baton->chunk += framesBytes;
+    }
 
-  // Go again?
-  if (again) {
     BeginWrite(baton);
-  } else {
-    pcm->reading = false;
-    delete baton;
+    return;
   }
+
+  // Run the callback (which may set writing again in this thread)
+  pcm->writing = false;
+  TRY_CATCH_CALL(pcm->handle_, baton->callback, 1, argv);
+  delete baton;
 }
