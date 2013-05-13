@@ -3,6 +3,8 @@ node-alsa
 
 ALSA bindings for Node.js
 
+[![NPM version](https://badge.fury.io/js/alsa.png)](http://badge.fury.io/js/alsa)
+
 
 Requirements
 ------------
