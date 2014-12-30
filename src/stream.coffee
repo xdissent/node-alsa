@@ -3,9 +3,9 @@ alsa = require './constants'
 Pcm = require('../build/Release/alsa').Pcm
 
 class Capture extends stream.Readable
-  constructor: (@device = 'default', channels = 2, rate = 44100, format = alsa.FORMAT_S16_LE, access = alsa.ACCESS_RW_INTERLEAVED, latency = 500) ->
+  constructor: (@device = 'default', channels = 2, rate = 44100, format = alsa.FORMAT_S16_LE, access = alsa.ACCESS_RW_INTERLEAVED, latency = 500, software_resampling = false) ->
     stream.Readable.call this
-    @pcm = new Pcm channels, rate, format, access, (latency * 1000)
+    @pcm = new Pcm channels, rate, format, access, (latency * 1000), software_resampling
 
   _read: ->
     return false if @pcm.opened

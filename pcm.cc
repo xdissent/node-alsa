@@ -1,4 +1,5 @@
 #include "pcm.h"
+#include <stdio.h>
 
 using namespace alsa;
 
@@ -37,6 +38,7 @@ Handle<Value> Pcm::New(const Arguments& args) {
   args.This()->Set(String::NewSymbol("format"), args[2], ReadOnly);
   args.This()->Set(String::NewSymbol("access"), args[3], ReadOnly);
   args.This()->Set(String::NewSymbol("latency"), args[4], ReadOnly);
+  args.This()->Set(String::NewSymbol("software_resampling"), args[5], ReadOnly);
 
   return args.This();
 }
@@ -76,7 +78,8 @@ Handle<Value> Pcm::Open(const Arguments& args) {
   snd_pcm_format_t format = static_cast<snd_pcm_format_t>(args.Holder()->Get(String::NewSymbol("format"))->Int32Value());
   snd_pcm_access_t access = static_cast<snd_pcm_access_t>(args.Holder()->Get(String::NewSymbol("access"))->Int32Value());
   unsigned int latency = args.Holder()->Get(String::NewSymbol("latency"))->Uint32Value();
-  
+  unsigned int software_resampling = args.Holder()->Get(String::NewSymbol("software_resampling"))->BooleanValue();
+
   // device, stream
   String::Utf8Value device(args[0]->ToString());
   snd_pcm_stream_t stream = static_cast<snd_pcm_stream_t>(args[1]->Int32Value());
@@ -85,7 +88,7 @@ Handle<Value> Pcm::Open(const Arguments& args) {
   err = snd_pcm_open(&(pcm->handle), *device, stream, 0);
   COND_ERR_CALL(err < 0, callback, "Couldn't open");
 
-  err = snd_pcm_set_params(pcm->handle, format, access, channels, rate, 0, latency);
+  err = snd_pcm_set_params(pcm->handle, format, access, channels, rate, software_resampling, latency);
   COND_ERR_CALL(err < 0, callback, "Couldn't set parameters");
 
 #ifdef DEBUG

@@ -49,9 +49,10 @@ var alsa = require('alsa'),
   format = alsa.FORMAT_S16_LE,          // PCM format (signed 16 bit LE int)
   access = alsa.ACCESS_RW_INTERLEAVED,  // Access mode
   latency = 500;                        // Desired latency in milliseconds
-
+  software_resampling = false           // If true and the alsa driver supports resampling, allow it to
+  
 // The Capture class is a stream.Readable subclass.
-var capture = new alsa.Capture(device, channels, rate, format, access, latency);
+var capture = new alsa.Capture(device, channels, rate, format, access, latency, software_resampling);
 capture.pipe(process.stdout);   // Treat it like any other readable stream.
 
 // The Playback class is a stream.Writable subclass.
