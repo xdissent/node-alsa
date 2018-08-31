@@ -1,10 +1,7 @@
-.node-version
 node_modules
-yarn-*.log
-tmp
 coverage
 lib
 es
+flow-typed
 build
 .vagrant
-*-console.log
